@@ -4,13 +4,45 @@
   <meta charset="UTF-8" />
   <title>中国象棋</title>
   <style>
+    /* ===== 基础变量：亮色主题 ===== */
+    :root {
+      --bg-color: #f9f9f9;
+      --board-bg: white;
+      --grid-color: black;
+      --text-color: black;
+      --river-text: black;
+      --piece-text-red: red;
+      --piece-text-black: black;
+      --path-color: blue;
+      --control-bg: white;
+      --control-border: #ccc;
+    }
+
+    /* ===== 暗色主题覆盖 ===== */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-color: #121212;
+        --board-bg: #1e1e1e;
+        --grid-color: #e0e0e0;
+        --text-color: #e0e0e0;
+        --river-text: #a0a0a0;
+        --piece-text-red: #ff6b6b;
+        --piece-text-black: #cccccc;
+        --path-color: #4da6ff;
+        --control-bg: #2d2d2d;
+        --control-border: #555;
+      }
+    }
+
     body {
       display: flex;
       flex-direction: column;
       align-items: center;
-      background: #f9f9f9;
+      background: var(--bg-color);
+      color: var(--text-color);
       padding: 20px;
       margin: 0;
+      transition: background-color 0.3s, color 0.3s;
     }
 
     .container {
@@ -22,9 +54,14 @@
     }
 
     #chessboard {
-      border: 1px solid #ccc;
-      background: white;
+      border: 1px solid var(--grid-color);
+      background: var(--board-bg);
       box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      cursor: default;
+    }
+
+    #chessboard * {
+      cursor: default !important;
     }
 
     .controls {
@@ -39,11 +76,30 @@
       height: 200px;
       font-family: monospace;
       padding: 8px;
-      border: 1px solid #ccc;
+      border: 1px solid var(--control-border);
       border-radius: 4px;
       resize: none;
+      background: var(--control-bg);
+      color: var(--text-color);
     }
 
+    .button-group {
+      display: flex;
+      gap: 8px;
+    }
+
+    button {
+      background: var(--control-bg);
+      color: var(--text-color);
+      border: 1px solid var(--control-border);
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--board-bg);
+    }
   </style>
 </head>
 <body>
@@ -53,8 +109,13 @@
 
     <div class="controls">
       <textarea id="pathInput" placeholder="(2,1)-(3,3)&#10;(3,3)-(5,2)&#10;(5,2)-(4,4)"></textarea>
-      <button onclick="drawPaths()">绘制路径</button>
-      <div>鼠标左键双击棋子可以移除棋子</div>
+      <div class="button-group">
+        <button onclick="drawPaths()">绘制路径</button>
+        <button onclick="movePieces()">移动棋子</button>
+      </div>
+      <div>
+        <small>鼠标左键双击棋子可以移除棋子</small>
+      </div>
     </div>
   </div>
 
@@ -77,213 +138,316 @@
     const svgSize = boardHeight + 2 * verticalMargin; // SVG 为正方形
     const horizontalMargin = (svgSize - boardWidth) / 2;
 
-    // === 初始化 SVG ===
-    const svg = document.getElementById('chessboard');
-    svg.setAttribute('width', svgSize);
-    svg.setAttribute('height', svgSize);
-    svg.innerHTML = '';
+    // === 获取当前主题颜色 ===
+    function getCurrentThemeColors() {
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return {
+        isDark,
+        gridColor: isDark ? '#e0e0e0' : 'black',
+        riverTextColor: isDark ? '#a0a0a0' : 'black',
+        pathColor: isDark ? '#4da6ff' : 'blue',
+        pieceRedColor: isDark ? '#ff6b6b' : 'red',
+        pieceBlackColor: isDark ? '#cccccc' : 'black',
+        boardBgColor: isDark ? '#1e1e1e' : 'white'
+      };
+    }
 
     // === 坐标转换函数：红方视角 (col, row) → SVG (x, y) ===
     function toSVGPos(col, row) {
-      // col: 1~9（1=右，9=左） → x = horizontalMargin + (9 - col) * cellSize
-      // row: 1~10（1=底，10=顶）→ y = verticalMargin + (10 - row) * cellSize
       const x = horizontalMargin + (NUM_FILES - col) * cellSize;
       const y = verticalMargin + (NUM_RANKS - row) * cellSize;
       return { x, y };
     }
 
-    // === 1. 绘制网格线 ===
-    const gridLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    // === 公共函数：解析路径输入 ===
+    function parsePaths(input) {
+      if (!input.trim()) return [];
 
-    // 竖线：共 NUM_FILES 条
-    for (let i = 0; i < NUM_FILES; i++) {
-      const x = horizontalMargin + i * cellSize;
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", x);
-      line.setAttribute("y1", verticalMargin);
-      line.setAttribute("x2", x);
-      line.setAttribute("y2", verticalMargin + boardHeight);
-      line.setAttribute("stroke", "black");
-      gridLayer.appendChild(line);
+      const pathRegex = /\(\s*(\d+)\s*,\s*(\d+)\s*\)\s*-\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/g;
+      let match;
+      const paths = [];
+
+      while ((match = pathRegex.exec(input)) !== null) {
+        const c1 = parseInt(match[1]);
+        const r1 = parseInt(match[2]);
+        const c2 = parseInt(match[3]);
+        const r2 = parseInt(match[4]);
+
+        if (
+          c1 >= 1 && c1 <= NUM_FILES &&
+          c2 >= 1 && c2 <= NUM_FILES &&
+          r1 >= 1 && r1 <= NUM_RANKS &&
+          r2 >= 1 && r2 <= NUM_RANKS
+        ) {
+          paths.push({ c1, r1, c2, r2 });
+        }
+      }
+
+      return paths;
     }
 
-    // 横线：共 NUM_RANKS 条
-    for (let i = 0; i < NUM_RANKS; i++) {
-      const y = verticalMargin + i * cellSize;
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", horizontalMargin);
-      line.setAttribute("y1", y);
-      line.setAttribute("x2", horizontalMargin + boardWidth);
-      line.setAttribute("y2", y);
-      line.setAttribute("stroke", "black");
-      gridLayer.appendChild(line);
+    // === 存储棋子映射 ===
+    let pieceMap = new Map();
+
+    // === 初始化棋盘 ===
+    function initChessboard() {
+      const svg = document.getElementById('chessboard');
+      svg.setAttribute('width', svgSize);
+      svg.setAttribute('height', svgSize);
+      svg.innerHTML = '';
+
+      const colors = getCurrentThemeColors();
+
+      // === 1. 绘制网格线 ===
+      const gridLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+      // 竖线
+      for (let i = 0; i < NUM_FILES; i++) {
+        const x = horizontalMargin + i * cellSize;
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", x);
+        line.setAttribute("y1", verticalMargin);
+        line.setAttribute("x2", x);
+        line.setAttribute("y2", verticalMargin + boardHeight);
+        line.setAttribute("stroke", colors.gridColor);
+        gridLayer.appendChild(line);
+      }
+
+      // 横线
+      for (let i = 0; i < NUM_RANKS; i++) {
+        const y = verticalMargin + i * cellSize;
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", horizontalMargin);
+        line.setAttribute("y1", y);
+        line.setAttribute("x2", horizontalMargin + boardWidth);
+        line.setAttribute("y2", y);
+        line.setAttribute("stroke", colors.gridColor);
+        gridLayer.appendChild(line);
+      }
+
+      // 九宫对角线
+      function addDiagonal(x1, y1, x2, y2) {
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", x1);
+        line.setAttribute("y1", y1);
+        line.setAttribute("x2", x2);
+        line.setAttribute("y2", y2);
+        line.setAttribute("stroke", colors.gridColor);
+        gridLayer.appendChild(line);
+      }
+
+      const xLeft = horizontalMargin + 3 * cellSize;
+      const xRight = horizontalMargin + 5 * cellSize;
+      const yBlackTop = verticalMargin;
+      const yBlackBottom = verticalMargin + 2 * cellSize;
+      const yRedTop = verticalMargin + 7 * cellSize;
+      const yRedBottom = verticalMargin + 9 * cellSize;
+
+      // 黑方九宫
+      addDiagonal(xLeft, yBlackTop, xRight, yBlackBottom);
+      addDiagonal(xRight, yBlackTop, xLeft, yBlackBottom);
+      // 红方九宫
+      addDiagonal(xLeft, yRedTop, xRight, yRedBottom);
+      addDiagonal(xRight, yRedTop, xLeft, yRedBottom);
+
+      svg.appendChild(gridLayer);
+
+      // === 2. 楚河汉界 ===
+      const riverLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      const riverY = verticalMargin + 4 * cellSize + 1;
+      const riverHeight = cellSize;
+
+      const riverRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      riverRect.setAttribute("x", horizontalMargin);
+      riverRect.setAttribute("y", riverY);
+      riverRect.setAttribute("width", boardWidth);
+      riverRect.setAttribute("height", riverHeight - 2);
+      riverRect.setAttribute("fill", colors.boardBgColor);
+      riverLayer.appendChild(riverRect);
+
+      const riverText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      riverText.setAttribute("x", horizontalMargin + boardWidth / 2);
+      riverText.setAttribute("y", riverY + riverHeight / 2);
+      riverText.setAttribute("font-size", fontSize);
+      riverText.setAttribute("text-anchor", "middle");
+      riverText.setAttribute("dominant-baseline", "middle");
+      riverText.setAttribute("fill", colors.riverTextColor);
+      riverText.textContent = "楚 河 汉 界";
+      riverLayer.appendChild(riverText);
+      svg.appendChild(riverLayer);
+
+      // === 3. 路径层 ===
+      const pathLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      pathLayer.id = "paths";
+      svg.appendChild(pathLayer);
+
+      // === 4. 棋子层 ===
+      const pieceLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      pieceLayer.id = "pieces";
+      svg.appendChild(pieceLayer);
+
+      // 初始棋子布局
+      const initialPieces = [
+        // 黑方
+        { col: 1, row: 10, name: "车", color: "black" },
+        { col: 2, row: 10, name: "马", color: "black" },
+        { col: 3, row: 10, name: "象", color: "black" },
+        { col: 4, row: 10, name: "士", color: "black" },
+        { col: 5, row: 10, name: "将", color: "black" },
+        { col: 6, row: 10, name: "士", color: "black" },
+        { col: 7, row: 10, name: "象", color: "black" },
+        { col: 8, row: 10, name: "马", color: "black" },
+        { col: 9, row: 10, name: "车", color: "black" },
+        { col: 2, row: 8, name: "炮", color: "black" },
+        { col: 8, row: 8, name: "炮", color: "black" },
+        { col: 1, row: 7, name: "卒", color: "black" },
+        { col: 3, row: 7, name: "卒", color: "black" },
+        { col: 5, row: 7, name: "卒", color: "black" },
+        { col: 7, row: 7, name: "卒", color: "black" },
+        { col: 9, row: 7, name: "卒", color: "black" },
+        // 红方
+        { col: 1, row: 1, name: "车", color: "red" },
+        { col: 2, row: 1, name: "马", color: "red" },
+        { col: 3, row: 1, name: "相", color: "red" },
+        { col: 4, row: 1, name: "仕", color: "red" },
+        { col: 5, row: 1, name: "帅", color: "red" },
+        { col: 6, row: 1, name: "仕", color: "red" },
+        { col: 7, row: 1, name: "相", color: "red" },
+        { col: 8, row: 1, name: "马", color: "red" },
+        { col: 9, row: 1, name: "车", color: "red" },
+        { col: 2, row: 3, name: "炮", color: "red" },
+        { col: 8, row: 3, name: "炮", color: "red" },
+        { col: 1, row: 4, name: "兵", color: "red" },
+        { col: 3, row: 4, name: "兵", color: "red" },
+        { col: 5, row: 4, name: "兵", color: "red" },
+        { col: 7, row: 4, name: "兵", color: "red" },
+        { col: 9, row: 4, name: "兵", color: "red" }
+      ];
+
+      pieceMap.clear();
+
+      function createPiece(piece) {
+        const pos = toSVGPos(piece.col, piece.row);
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.setAttribute("data-pos", `(${piece.col},${piece.row})`);
+
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", pos.x);
+        circle.setAttribute("cy", pos.y);
+        circle.setAttribute("r", radius);
+        circle.setAttribute("fill", colors.boardBgColor);
+        circle.setAttribute("stroke", colors.gridColor);
+        g.appendChild(circle);
+
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute("x", pos.x);
+        text.setAttribute("y", pos.y);
+        text.setAttribute("font-size", fontSize);
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("dominant-baseline", "middle");
+
+        if (piece.color === "red") {
+          text.setAttribute("fill", colors.pieceRedColor);
+        } else {
+          text.setAttribute("fill", colors.pieceBlackColor);
+        }
+
+        text.textContent = piece.name;
+        g.appendChild(text);
+
+        g.addEventListener('dblclick', () => {
+          const posStr = `(${piece.col},${piece.row})`;
+          pieceMap.delete(posStr);
+          g.remove();
+        });
+
+        const posStr = `(${piece.col},${piece.row})`;
+        pieceMap.set(posStr, { element: g, piece: piece });
+
+        return g;
+      }
+
+      initialPieces.forEach(p => pieceLayer.appendChild(createPiece(p)));
     }
 
-    // 九宫对角线辅助函数
-    function addDiagonal(x1, y1, x2, y2) {
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", x1);
-      line.setAttribute("y1", y1);
-      line.setAttribute("x2", x2);
-      line.setAttribute("y2", y2);
-      line.setAttribute("stroke", "black");
-      gridLayer.appendChild(line);
-    }
-
-    // 九宫区域：黑方（上）和红方（下）
-    const xLeft = horizontalMargin + 3 * cellSize;  // 对应 col=6
-    const xRight = horizontalMargin + 5 * cellSize; // 对应 col=4
-    const yBlackTop = verticalMargin;               // row=10
-    const yBlackBottom = verticalMargin + 2 * cellSize; // row=8
-    const yRedTop = verticalMargin + 7 * cellSize;  // row=3
-    const yRedBottom = verticalMargin + 9 * cellSize; // row=1
-
-    // 黑方九宫
-    addDiagonal(xLeft, yBlackTop, xRight, yBlackBottom);
-    addDiagonal(xRight, yBlackTop, xLeft, yBlackBottom);
-    // 红方九宫
-    addDiagonal(xLeft, yRedTop, xRight, yRedBottom);
-    addDiagonal(xRight, yRedTop, xLeft, yRedBottom);
-
-    svg.appendChild(gridLayer);
-
-    // === 2. 楚河汉界 ===
-    const riverLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    const riverY = verticalMargin + 4 * cellSize + 1;
-    const riverHeight = cellSize;
-
-    const riverRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    riverRect.setAttribute("x", horizontalMargin);
-    riverRect.setAttribute("y", riverY);
-    riverRect.setAttribute("width", boardWidth);
-    riverRect.setAttribute("height", riverHeight - 2);
-    riverRect.setAttribute("fill", "white");
-    riverLayer.appendChild(riverRect);
-
-    const riverText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    riverText.setAttribute("x", horizontalMargin + boardWidth / 2);
-    riverText.setAttribute("y", riverY + riverHeight / 2);
-    riverText.setAttribute("font-size", fontSize);
-    riverText.setAttribute("text-anchor", "middle");
-    riverText.setAttribute("dominant-baseline", "middle");
-    riverText.textContent = "楚 河 汉 界";
-    riverLayer.appendChild(riverText);
-    svg.appendChild(riverLayer);
-
-    // === 3. 路径层 ===
-    const pathLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    pathLayer.id = "paths";
-    svg.appendChild(pathLayer);
-
-    // === 4. 棋子层 ===
-    const pieceLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    pieceLayer.id = "pieces";
-    svg.appendChild(pieceLayer);
-
-    // 初始棋子布局（红方视角坐标）
-    const initialPieces = [
-      // 黑方（row=10,8,7）
-      { col: 1, row: 10, name: "车", color: "black" },
-      { col: 2, row: 10, name: "马", color: "black" },
-      { col: 3, row: 10, name: "象", color: "black" },
-      { col: 4, row: 10, name: "士", color: "black" },
-      { col: 5, row: 10, name: "将", color: "black" },
-      { col: 6, row: 10, name: "士", color: "black" },
-      { col: 7, row: 10, name: "象", color: "black" },
-      { col: 8, row: 10, name: "马", color: "black" },
-      { col: 9, row: 10, name: "车", color: "black" },
-      { col: 2, row: 8, name: "炮", color: "black" },
-      { col: 8, row: 8, name: "炮", color: "black" },
-      { col: 1, row: 7, name: "卒", color: "black" },
-      { col: 3, row: 7, name: "卒", color: "black" },
-      { col: 5, row: 7, name: "卒", color: "black" },
-      { col: 7, row: 7, name: "卒", color: "black" },
-      { col: 9, row: 7, name: "卒", color: "black" },
-      // 红方（row=1,3,4）
-      { col: 1, row: 1, name: "车", color: "red" },
-      { col: 2, row: 1, name: "马", color: "red" },
-      { col: 3, row: 1, name: "相", color: "red" },
-      { col: 4, row: 1, name: "仕", color: "red" },
-      { col: 5, row: 1, name: "帅", color: "red" },
-      { col: 6, row: 1, name: "仕", color: "red" },
-      { col: 7, row: 1, name: "相", color: "red" },
-      { col: 8, row: 1, name: "马", color: "red" },
-      { col: 9, row: 1, name: "车", color: "red" },
-      { col: 2, row: 3, name: "炮", color: "red" },
-      { col: 8, row: 3, name: "炮", color: "red" },
-      { col: 1, row: 4, name: "兵", color: "red" },
-      { col: 3, row: 4, name: "兵", color: "red" },
-      { col: 5, row: 4, name: "兵", color: "red" },
-      { col: 7, row: 4, name: "兵", color: "red" },
-      { col: 9, row: 4, name: "兵", color: "red" }
-    ];
-
-    function createPiece(piece) {
-      const pos = toSVGPos(piece.col, piece.row);
-      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      g.setAttribute("data-pos", `(${piece.col},${piece.row})`);
-
-      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("cx", pos.x);
-      circle.setAttribute("cy", pos.y);
-      circle.setAttribute("r", radius);
-      circle.setAttribute("fill", "white");
-      circle.setAttribute("stroke", "black");
-      g.appendChild(circle);
-
-      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      text.setAttribute("x", pos.x);
-      text.setAttribute("y", pos.y);
-      text.setAttribute("font-size", fontSize);
-      text.setAttribute("text-anchor", "middle");
-      text.setAttribute("dominant-baseline", "middle");
-      text.setAttribute("fill", piece.color);
-      text.textContent = piece.name;
-      g.appendChild(text);
-
-      g.addEventListener('dblclick', () => g.remove());
-      return g;
-    }
-
-    initialPieces.forEach(p => pieceLayer.appendChild(createPiece(p)));
-
-    // === 5. 路径绘制函数 ===
+    // === 路径绘制函数 ===
     function drawPaths() {
       const pathLayer = document.getElementById('paths');
       if (!pathLayer) return;
       pathLayer.innerHTML = '';
 
       const input = document.getElementById('pathInput').value;
-      const lines = input.trim().split('\n');
+      const paths = parsePaths(input);
+      const colors = getCurrentThemeColors();
 
-      for (const line of lines) {
-        const match = line.trim().match(/^\s*\((\d+),(\d+)\)\s*-\s*\((\d+),(\d+)\)\s*$/);
-        if (!match) continue;
+      for (const path of paths) {
+        const p1 = toSVGPos(path.c1, path.r1);
+        const p2 = toSVGPos(path.c2, path.r2);
 
-        const [_, c1, r1, c2, r2] = match.map(Number);
-        if (
-          c1 < 1 || c1 > NUM_FILES ||
-          c2 < 1 || c2 > NUM_FILES ||
-          r1 < 1 || r1 > NUM_RANKS ||
-          r2 < 1 || r2 > NUM_RANKS
-        ) continue;
-
-        const p1 = toSVGPos(c1, r1);
-        const p2 = toSVGPos(c2, r2);
-
-        const path = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        path.setAttribute("x1", p1.x);
-        path.setAttribute("y1", p1.y);
-        path.setAttribute("x2", p2.x);
-        path.setAttribute("y2", p2.y);
-        path.setAttribute("stroke", "blue");
-        path.setAttribute("stroke-dasharray", "5,5");
-        path.setAttribute("stroke-width", "2");
-        pathLayer.appendChild(path);
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", p1.x);
+        line.setAttribute("y1", p1.y);
+        line.setAttribute("x2", p2.x);
+        line.setAttribute("y2", p2.y);
+        line.setAttribute("stroke", colors.pathColor);
+        line.setAttribute("stroke-dasharray", "5,5");
+        line.setAttribute("stroke-width", "2");
+        pathLayer.appendChild(line);
       }
     }
 
+    // === 移动棋子函数 ===
+    function movePieces() {
+      const input = document.getElementById('pathInput').value;
+      const moves = parsePaths(input);
+
+      for (const move of moves) {
+        const sourcePos = `(${move.c1},${move.r1})`;
+        const targetPos = `(${move.c2},${move.r2})`;
+
+        if (!pieceMap.has(sourcePos)) {
+          console.log(`源坐标 ${sourcePos} 没有棋子，停止执行后续移动`);
+          break;
+        }
+
+        if (pieceMap.has(targetPos)) {
+          console.log(`目标坐标 ${targetPos} 已有棋子，停止执行后续移动`);
+          break;
+        }
+
+        const pieceData = pieceMap.get(sourcePos);
+        const piece = pieceData.piece;
+        const element = pieceData.element;
+
+        piece.col = move.c2;
+        piece.row = move.r2;
+        element.setAttribute("data-pos", targetPos);
+
+        pieceMap.delete(sourcePos);
+        pieceMap.set(targetPos, { element: element, piece: piece });
+
+        const newPos = toSVGPos(move.c2, move.r2);
+        const circle = element.querySelector('circle');
+        const text = element.querySelector('text');
+        circle.setAttribute("cx", newPos.x);
+        circle.setAttribute("cy", newPos.y);
+        text.setAttribute("x", newPos.x);
+        text.setAttribute("y", newPos.y);
+      }
+    }
+
+    // === 主题切换处理 ===
+    function handleThemeChange() {
+      initChessboard();
+      drawPaths();
+    }
+
+    // 初始化
+    initChessboard();
     drawPaths();
+
+    // 监听系统主题变化
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', handleThemeChange);
   </script>
 </body>
 </html>
