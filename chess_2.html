@@ -1,110 +1,68 @@
 <!DOCTYPE html>
 <html lang="zh">
+
 <head>
   <meta charset="UTF-8" />
   <title>中国象棋</title>
   <style>
+    /*
+    https://developer.mozilla.org/en-US/docs/Web/CSS/color-scheme
+    https://developer.mozilla.org/en-US/docs/Web/CSS/system-color
+    */
+
     :root {
-      --bg-color: #f9f9f9;
-      --board-bg: white;
-      --grid-color: black;
-      --text-color: black;
-      --river-text: black;
-      --piece-text-red: red;
-      --piece-text-black: black;
-      --path-color: blue;
-      --control-bg: white;
-      --control-border: #ccc;
-      --button-active: #b0b0b0;
+      color-scheme: light dark;
     }
 
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg-color: #121212;
-        --board-bg: #1e1e1e;
-        --grid-color: #e0e0e0;
-        --text-color: #e0e0e0;
-        --river-text: #a0a0a0;
-        --piece-text-red: #ff6b6b;
-        --piece-text-black: #cccccc;
-        --path-color: #4da6ff;
-        --control-bg: #2d2d2d;
-        --control-border: #555;
-        --button-active: #5a5a5a;
-      }
-    }
-
+    /*
+    - the default background-color is too dark in dark mode.
+    - the system color Field is good in both light and dark mode.
+    - use Field as background color and FieldText as foreground color for
+      other non-builtin controls.
+    - LinkText is also good color for other purpose on Field background color.
+    */
     body {
-      display: flex;
-      flex-direction: column;
       align-items: center;
-      background: var(--bg-color);
-      color: var(--text-color);
-      padding: 20px;
-      margin: 0;
-      transition: background-color 0.3s, color 0.3s;
+      display: flex;
+      background-color: Field;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 100vh;
     }
 
     .container {
-      display: flex;
       align-items: center;
-      justify-content: center;
-      gap: 20px;
-      margin-top: 10px;
+      display: flex;
+      gap: 8px;
     }
 
     #chessboard {
-      border: 1px solid var(--grid-color);
-      background: var(--board-bg);
-      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      border: 1px solid;
       cursor: default;
     }
 
     .controls {
+      align-items: center;
       display: flex;
       flex-direction: column;
-      align-items: center;
       gap: 8px;
     }
 
     textarea {
-      width: 150px;
-      height: 200px;
+      border: 1px solid;
       font-family: monospace;
-      padding: 8px;
-      border: 1px solid var(--control-border);
-      border-radius: 4px;
+      height: 230px;
       resize: none;
-      background: var(--control-bg);
-      color: var(--text-color);
-    }
-
-    .button-group {
-      display: flex;
-      gap: 8px;
-    }
-
-    button {
-      background: var(--control-bg);
-      color: var(--text-color);
-      border: 1px solid var(--control-border);
-      padding: 4px 8px;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-
-    button:active {
-      background: var(--button-active);
-      transform: translateY(1px);
     }
   </style>
 </head>
+
 <body>
   <div class="container">
     <svg id="chessboard"></svg>
     <div class="controls">
       <textarea id="pathInput" placeholder="(2,1)-(3,3)&#10;(3,3)-(5,2)&#10;(5,2)-(4,4)"></textarea>
-      <div class="button-group">
+      <div>
         <button onclick="drawPaths()">绘制路径</button>
         <button onclick="movePieces()">移动棋子</button>
       </div>
@@ -121,59 +79,59 @@
     const FONT_SIZE = 20;
     const RADIUS = FONT_SIZE * 0.65;
     const CELL_SIZE = FONT_SIZE * 1.5;
-    const MARGIN = RADIUS * 2;
-    const SVG_SIZE = (NUM_RANKS - 1) * CELL_SIZE + MARGIN * 2;
+    const VERTICAL_MARGIN = RADIUS * 2;
+    const SVG_SIZE = (NUM_RANKS - 1) * CELL_SIZE + VERTICAL_MARGIN * 2;
     const BOARD_WIDTH = (NUM_FILES - 1) * CELL_SIZE;
     const BOARD_HEIGHT = (NUM_RANKS - 1) * CELL_SIZE;
     const HORIZONTAL_MARGIN = (SVG_SIZE - BOARD_WIDTH) / 2;
 
-    // 存储棋子状态
-    let pieces = [
-      // 黑方
-      { col: 1, row: 10, name: "车", color: "black" },
-      { col: 2, row: 10, name: "马", color: "black" },
-      { col: 3, row: 10, name: "象", color: "black" },
-      { col: 4, row: 10, name: "士", color: "black" },
-      { col: 5, row: 10, name: "将", color: "black" },
-      { col: 6, row: 10, name: "士", color: "black" },
-      { col: 7, row: 10, name: "象", color: "black" },
-      { col: 8, row: 10, name: "马", color: "black" },
-      { col: 9, row: 10, name: "车", color: "black" },
-      { col: 2, row: 8, name: "炮", color: "black" },
-      { col: 8, row: 8, name: "炮", color: "black" },
-      { col: 1, row: 7, name: "卒", color: "black" },
-      { col: 3, row: 7, name: "卒", color: "black" },
-      { col: 5, row: 7, name: "卒", color: "black" },
-      { col: 7, row: 7, name: "卒", color: "black" },
-      { col: 9, row: 7, name: "卒", color: "black" },
+    // SVG 元素创建辅助函数
+    function el(tag, attributes = {}) {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      Object.entries(attributes).forEach(([key, value]) => {
+        element.setAttribute(key, value);
+      });
+      return element;
+    }
 
-      // 红方
-      { col: 1, row: 1, name: "车", color: "red" },
-      { col: 2, row: 1, name: "马", color: "red" },
-      { col: 3, row: 1, name: "相", color: "red" },
-      { col: 4, row: 1, name: "仕", color: "red" },
-      { col: 5, row: 1, name: "帅", color: "red" },
-      { col: 6, row: 1, name: "仕", color: "red" },
-      { col: 7, row: 1, name: "相", color: "red" },
-      { col: 8, row: 1, name: "马", color: "red" },
-      { col: 9, row: 1, name: "车", color: "red" },
-      { col: 2, row: 3, name: "炮", color: "red" },
-      { col: 8, row: 3, name: "炮", color: "red" },
-      { col: 1, row: 4, name: "兵", color: "red" },
-      { col: 3, row: 4, name: "兵", color: "red" },
-      { col: 5, row: 4, name: "兵", color: "red" },
-      { col: 7, row: 4, name: "兵", color: "red" },
-      { col: 9, row: 4, name: "兵", color: "red" }
-    ];
+    // 存储棋子状态
+    const PIECE_TEMPLATES = {
+      black: [
+        { cols: [1, 2, 3, 4, 5, 6, 7, 8, 9], row: 10, names: ["车", "马", "象", "士", "将", "士", "象", "马", "车"] },
+        { cols: [2, 8], row: 8, names: ["炮", "炮"] },
+        { cols: [1, 3, 5, 7, 9], row: 7, names: ["卒", "卒", "卒", "卒", "卒"] }
+      ],
+      red: [
+        { cols: [1, 2, 3, 4, 5, 6, 7, 8, 9], row: 1, names: ["车", "马", "相", "仕", "帅", "仕", "相", "马", "车"] },
+        { cols: [2, 8], row: 3, names: ["炮", "炮"] },
+        { cols: [1, 3, 5, 7, 9], row: 4, names: ["兵", "兵", "兵", "兵", "兵"] }
+      ]
+    };
+
+    let pieces = [];
+
+    Object.entries(PIECE_TEMPLATES).forEach(([color, templates]) => {
+      templates.forEach(template => {
+        template.cols.forEach((col, index) => {
+          pieces.push({
+            col,
+            row: template.row,
+            name: template.names[index],
+            color
+          });
+        });
+      });
+    });
 
     // 存储路径
     let currentPaths = [];
 
     // 坐标转换
     function toSVGPos(col, row) {
-      const x = HORIZONTAL_MARGIN + (NUM_FILES - col) * CELL_SIZE;
-      const y = MARGIN + (NUM_RANKS - row) * CELL_SIZE;
-      return { x, y };
+      return {
+        x: HORIZONTAL_MARGIN + (NUM_FILES - col) * CELL_SIZE,
+        y: VERTICAL_MARGIN + (NUM_RANKS - row) * CELL_SIZE
+      };
     }
 
     // 解析路径
@@ -191,65 +149,6 @@
       return paths;
     }
 
-    // 获取主题颜色
-    function getColors() {
-      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      return {
-        grid: isDark ? '#e0e0e0' : 'black',
-        river: isDark ? '#a0a0a0' : 'black',
-        path: isDark ? '#4da6ff' : 'blue',
-        red: isDark ? '#ff6b6b' : 'red',
-        black: isDark ? '#cccccc' : 'black',
-        bg: isDark ? '#1e1e1e' : 'white'
-      };
-    }
-
-    // 更新颜色
-    function updateColors() {
-      const colors = getColors();
-
-      // 更新网格和河界颜色
-      document.querySelectorAll('#gridLayer line, #riverLayer rect, #riverLayer text').forEach(el => {
-        if (el.tagName === 'line') {
-          el.setAttribute('stroke', colors.grid);
-        } else if (el.tagName === 'rect') {
-          el.setAttribute('fill', colors.bg);
-        } else if (el.tagName === 'text') {
-          el.setAttribute('fill', colors.river);
-        }
-      });
-
-      // 更新路径颜色
-      document.querySelectorAll('#paths line').forEach(line => {
-        line.setAttribute('stroke', colors.path);
-      });
-
-      // 更新棋子颜色
-      document.querySelectorAll('#pieces g circle').forEach(circle => {
-        const piece = circle.parentElement;
-        const pos = piece.dataset.pos.split(',');
-        const col = parseInt(pos[0]);
-        const row = parseInt(pos[1]);
-        const pieceData = pieces.find(p => p.col === col && p.row === row);
-        if (pieceData) {
-          circle.setAttribute('fill', colors.bg);
-          circle.setAttribute('stroke', colors.grid);
-        }
-      });
-
-      // 更新棋子文字颜色
-      document.querySelectorAll('#pieces g text').forEach(text => {
-        const piece = text.parentElement;
-        const pos = piece.dataset.pos.split(',');
-        const col = parseInt(pos[0]);
-        const row = parseInt(pos[1]);
-        const pieceData = pieces.find(p => p.col === col && p.row === row);
-        if (pieceData) {
-          text.setAttribute('fill', pieceData.color === 'red' ? colors.red : colors.black);
-        }
-      });
-    }
-
     // 初始化棋盘
     function initChessboard() {
       const svg = document.getElementById('chessboard');
@@ -257,59 +156,53 @@
       svg.setAttribute('height', SVG_SIZE);
       svg.innerHTML = '';
 
-      const colors = getColors();
-
       // 创建图层
-      const gridLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      gridLayer.id = 'gridLayer';
-      const riverLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      riverLayer.id = 'riverLayer';
-      const pathLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      pathLayer.id = "paths";
-      const pieceLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      pieceLayer.id = "pieces";
+      const gridLayer = el('g', { id: 'gridLayer' });
+      const riverLayer = el('g', { id: 'riverLayer' });
+      const pathLayer = el('g', { id: 'paths' });
+      const pieceLayer = el('g', { id: 'pieces' });
 
       // 绘制竖线
       for (let i = 0; i < NUM_FILES; i++) {
         const x = HORIZONTAL_MARGIN + i * CELL_SIZE;
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", x);
-        line.setAttribute("y1", MARGIN);
-        line.setAttribute("x2", x);
-        line.setAttribute("y2", MARGIN + BOARD_HEIGHT);
-        line.setAttribute("stroke", colors.grid);
+        const line = el('line', {
+          x1: x,
+          y1: VERTICAL_MARGIN,
+          x2: x,
+          y2: VERTICAL_MARGIN + BOARD_HEIGHT,
+          stroke: 'ButtonBorder'
+        });
         gridLayer.appendChild(line);
       }
 
       // 绘制横线
       for (let i = 0; i < NUM_RANKS; i++) {
-        const y = MARGIN + i * CELL_SIZE;
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", HORIZONTAL_MARGIN);
-        line.setAttribute("y1", y);
-        line.setAttribute("x2", HORIZONTAL_MARGIN + BOARD_WIDTH);
-        line.setAttribute("y2", y);
-        line.setAttribute("stroke", colors.grid);
+        const y = VERTICAL_MARGIN + i * CELL_SIZE;
+        const line = el('line', {
+          x1: HORIZONTAL_MARGIN,
+          y1: y,
+          x2: HORIZONTAL_MARGIN + BOARD_WIDTH,
+          y2: y,
+          stroke: 'ButtonBorder'
+        });
         gridLayer.appendChild(line);
       }
 
       // 九宫格对角线
       const addDiagonal = (x1, y1, x2, y2) => {
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", x1);
-        line.setAttribute("y1", y1);
-        line.setAttribute("x2", x2);
-        line.setAttribute("y2", y2);
-        line.setAttribute("stroke", colors.grid);
+        const line = el('line', {
+          x1, y1, x2, y2,
+          stroke: 'ButtonBorder'
+        });
         gridLayer.appendChild(line);
       };
 
       const x3 = HORIZONTAL_MARGIN + 3 * CELL_SIZE;
       const x5 = HORIZONTAL_MARGIN + 5 * CELL_SIZE;
-      const y0 = MARGIN;
-      const y2 = MARGIN + 2 * CELL_SIZE;
-      const y7 = MARGIN + 7 * CELL_SIZE;
-      const y9 = MARGIN + 9 * CELL_SIZE;
+      const y0 = VERTICAL_MARGIN;
+      const y2 = VERTICAL_MARGIN + 2 * CELL_SIZE;
+      const y7 = VERTICAL_MARGIN + 7 * CELL_SIZE;
+      const y9 = VERTICAL_MARGIN + 9 * CELL_SIZE;
 
       // 黑方九宫格
       addDiagonal(x3, y0, x5, y2);
@@ -321,26 +214,28 @@
       svg.appendChild(gridLayer);
 
       // 楚河汉界
-      const riverY = MARGIN + 4 * CELL_SIZE;
-      const riverRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      riverRect.setAttribute("x", HORIZONTAL_MARGIN);
-      riverRect.setAttribute("y", riverY);
-      riverRect.setAttribute("width", BOARD_WIDTH);
-      riverRect.setAttribute("height", CELL_SIZE);
-      riverRect.setAttribute("fill", colors.bg);
-      riverLayer.appendChild(riverRect);
+      const riverY = VERTICAL_MARGIN + 4 * CELL_SIZE;
+      const rect = el('rect', {
+        x: HORIZONTAL_MARGIN,
+        y: riverY,
+        width: BOARD_WIDTH,
+        height: CELL_SIZE,
+        fill: 'Field'
+      });
+      riverLayer.appendChild(rect);
 
-      const riverText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      riverText.setAttribute("x", HORIZONTAL_MARGIN + BOARD_WIDTH / 2);
-      riverText.setAttribute("y", riverY + CELL_SIZE / 2);
-      riverText.setAttribute("font-size", FONT_SIZE);
-      riverText.setAttribute("text-anchor", "middle");
-      riverText.setAttribute("dominant-baseline", "middle");
-      riverText.setAttribute("fill", colors.river);
-      riverText.textContent = "楚 河 汉 界";
-      riverLayer.appendChild(riverText);
+      const text = el('text', {
+        x: HORIZONTAL_MARGIN + BOARD_WIDTH / 2,
+        y: riverY + CELL_SIZE / 2,
+        'font-size': FONT_SIZE,
+        'text-anchor': 'middle',
+        'dominant-baseline': 'middle',
+        fill: 'FieldText'
+      });
+      text.textContent = "楚 河 汉 界";
+      riverLayer.appendChild(text);
+
       svg.appendChild(riverLayer);
-
       svg.appendChild(pathLayer);
       svg.appendChild(pieceLayer);
 
@@ -355,24 +250,25 @@
 
       pieces.forEach(p => {
         const pos = toSVGPos(p.col, p.row);
-        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        g.dataset.pos = `${p.col},${p.row}`;
+        const g = el('g', { 'data-pos': `${p.col},${p.row}` });
 
-        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        circle.setAttribute("cx", pos.x);
-        circle.setAttribute("cy", pos.y);
-        circle.setAttribute("r", RADIUS);
-        circle.setAttribute("fill", getColors().bg);
-        circle.setAttribute("stroke", getColors().grid);
+        const circle = el('circle', {
+          cx: pos.x,
+          cy: pos.y,
+          r: RADIUS,
+          fill: 'Field',
+          stroke: 'FieldText'
+        });
         g.appendChild(circle);
 
-        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        text.setAttribute("x", pos.x);
-        text.setAttribute("y", pos.y);
-        text.setAttribute("font-size", FONT_SIZE);
-        text.setAttribute("text-anchor", "middle");
-        text.setAttribute("dominant-baseline", "middle");
-        text.setAttribute("fill", p.color === "red" ? getColors().red : getColors().black);
+        const text = el('text', {
+          x: pos.x,
+          y: pos.y,
+          'font-size': FONT_SIZE,
+          'text-anchor': 'middle',
+          'dominant-baseline': 'middle',
+          fill: p.color === 'black' ? 'FieldText' : p.color
+        });
         text.textContent = p.name;
         g.appendChild(text);
 
@@ -391,20 +287,20 @@
     function drawPaths() {
       const pathLayer = document.getElementById('paths');
       pathLayer.innerHTML = '';
-      const colors = getColors();
       currentPaths = parsePaths(document.getElementById('pathInput').value);
 
       currentPaths.forEach(path => {
         const p1 = toSVGPos(path.c1, path.r1);
         const p2 = toSVGPos(path.c2, path.r2);
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", p1.x);
-        line.setAttribute("y1", p1.y);
-        line.setAttribute("x2", p2.x);
-        line.setAttribute("y2", p2.y);
-        line.setAttribute("stroke", colors.path);
-        line.setAttribute("stroke-dasharray", "5,5");
-        line.setAttribute("stroke-width", "2");
+        const line = el('line', {
+          x1: p1.x,
+          y1: p1.y,
+          x2: p2.x,
+          y2: p2.y,
+          stroke: 'LinkText',
+          'stroke-dasharray': '5,5',
+          'stroke-width': '2'
+        });
         pathLayer.appendChild(line);
       });
     }
@@ -448,7 +344,7 @@
     }
 
     initChessboard();
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateColors);
   </script>
 </body>
+
 </html>
